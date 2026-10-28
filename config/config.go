@@ -10,10 +10,15 @@ import (
 
 // Config holds the application configuration.
 type Config struct {
-	DefaultAgent string                 `json:"default_agent"`
-	APIAddr      string                 `json:"api_addr,omitempty"`
-	SaveDir      string                 `json:"save_dir,omitempty"`
-	Agents       map[string]AgentConfig `json:"agents"`
+	DefaultAgent       string                 `json:"default_agent"`
+	APIAddr            string                 `json:"api_addr,omitempty"`
+	SaveDir            string                 `json:"save_dir,omitempty"`
+	InboxDir           string                 `json:"inbox_dir,omitempty"`
+	InboxMaxFiles      int                    `json:"inbox_max_files,omitempty"`
+	InboxMaxFileBytes  int64                  `json:"inbox_max_file_bytes,omitempty"`
+	InboxMaxBatchBytes int64                  `json:"inbox_max_batch_bytes,omitempty"`
+	InboxTTLMinutes    int                    `json:"inbox_ttl_minutes,omitempty"`
+	Agents             map[string]AgentConfig `json:"agents"`
 }
 
 // AgentConfig holds configuration for a single agent.
@@ -38,6 +43,7 @@ func BuildAliasMap(agents map[string]AgentConfig) map[string]string {
 	// Built-in commands that cannot be overridden
 	reserved := map[string]bool{
 		"info": true, "help": true, "new": true, "clear": true, "cwd": true,
+		"files": true, "clear-files": true,
 	}
 
 	m := make(map[string]string)
@@ -118,6 +124,9 @@ func loadEnv(cfg *Config) {
 	}
 	if v := os.Getenv("WECLAW_SAVE_DIR"); v != "" {
 		cfg.SaveDir = v
+	}
+	if v := os.Getenv("WECLAW_INBOX_DIR"); v != "" {
+		cfg.InboxDir = v
 	}
 }
 

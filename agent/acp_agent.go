@@ -257,9 +257,12 @@ func (a *ACPAgent) Start(ctx context.Context) error {
 	a.scanner = bufio.NewScanner(stdout)
 	a.scanner.Buffer(make([]byte, 0, 4*1024*1024), 4*1024*1024) // 4MB
 	a.started = true
+	cmd := a.cmd
+	stdin := a.stdin
+	scanner := a.scanner
 
-	// Start reading loop
-	go a.readLoop()
+	// Start reading loop. It also owns process reaping and disconnect cleanup.
+	go a.readLoop(cmd, scanner)
 
 	// Release lock before calling initialize — call() needs a.mu to write to stdin
 	a.mu.Unlock()
@@ -290,9 +293,8 @@ func (a *ACPAgent) Start(ctx context.Context) error {
 		a.mu.Lock()
 		a.started = false
 		a.mu.Unlock()
-		a.stdin.Close()
-		a.cmd.Process.Kill()
-		a.cmd.Wait()
+		_ = stdin.Close()
+		_ = cmd.Process.Kill()
 		// Use stderr detail if available (e.g. "connect ECONNREFUSED")
 		if detail := a.stderr.LastError(); detail != "" {
 			return fmt.Errorf("agent startup failed: %s", detail)
@@ -312,15 +314,21 @@ func (a *ACPAgent) Start(ctx context.Context) error {
 // Stop terminates the subprocess.
 func (a *ACPAgent) Stop() {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	if !a.started {
+		a.mu.Unlock()
 		return
 	}
-	a.stdin.Close()
-	a.cmd.Process.Kill()
-	a.cmd.Wait()
 	a.started = false
+	stdin := a.stdin
+	cmd := a.cmd
+	a.mu.Unlock()
+
+	if stdin != nil {
+		_ = stdin.Close()
+	}
+	if cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
 }
 
 // SetCwd changes the working directory for subsequent sessions.
@@ -358,13 +366,23 @@ func (a *ACPAgent) ResetSession(ctx context.Context, conversationID string) (str
 	return sessionID, nil
 }
 
+// withSystemPrompt prefixes the configured system prompt so ACP backends
+// (codex, dsh, claude-agent-acp) receive the WeClaw persona. ACP has no
+// system-prompt field, so it is injected as leading instruction text.
+func (a *ACPAgent) withSystemPrompt(message string) string {
+	if a.systemPrompt == "" {
+		return message
+	}
+	return a.systemPrompt + "\n\n---\n\n" + message
+}
+
 // Chat sends a message and returns the full response.
 func (a *ACPAgent) Chat(ctx context.Context, conversationID string, message string) (string, error) {
-	if !a.started {
-		if err := a.Start(ctx); err != nil {
-			return "", err
-		}
+	if err := a.Start(ctx); err != nil {
+		return "", err
 	}
+
+	message = a.withSystemPrompt(message)
 
 	// Route to codex app-server protocol if applicable
 	if a.protocol == protocolCodexAppServer {
@@ -419,6 +437,11 @@ func (a *ACPAgent) Chat(ctx context.Context, conversationID string, message stri
 	for {
 		select {
 		case <-ctx.Done():
+			// ACP cancellation is a notification. Use the live transport directly
+			// so cancelling this request does not leave the remote turn running.
+			if err := a.notify("session/cancel", map[string]string{"sessionId": sessionID}); err != nil {
+				log.Printf("[acp] failed to cancel session %s: %v", sessionID, err)
+			}
 			return "", ctx.Err()
 		case update := <-notifyCh:
 			if update.SessionUpdate == "agent_message_chunk" {
@@ -630,6 +653,10 @@ func (a *ACPAgent) notify(method string, params interface{}) error {
 	}
 
 	a.mu.Lock()
+	if !a.started || a.stdin == nil {
+		a.mu.Unlock()
+		return fmt.Errorf("ACP subprocess is not running")
+	}
 	_, err = fmt.Fprintf(a.stdin, "%s\n", data)
 	a.mu.Unlock()
 	return err
@@ -663,6 +690,10 @@ func (a *ACPAgent) call(ctx context.Context, method string, params interface{}) 
 	}
 
 	a.mu.Lock()
+	if !a.started || a.stdin == nil {
+		a.mu.Unlock()
+		return nil, fmt.Errorf("ACP subprocess is not running")
+	}
 	_, err = fmt.Fprintf(a.stdin, "%s\n", data)
 	a.mu.Unlock()
 	if err != nil {
@@ -688,9 +719,9 @@ func (a *ACPAgent) call(ctx context.Context, method string, params interface{}) 
 }
 
 // readLoop reads NDJSON lines from stdout and dispatches to pending requests or notification channels.
-func (a *ACPAgent) readLoop() {
-	for a.scanner.Scan() {
-		line := a.scanner.Text()
+func (a *ACPAgent) readLoop(cmd *exec.Cmd, scanner *bufio.Scanner) {
+	for scanner.Scan() {
+		line := scanner.Text()
 		if line == "" {
 			continue
 		}
@@ -745,10 +776,40 @@ func (a *ACPAgent) readLoop() {
 		}
 	}
 
-	if err := a.scanner.Err(); err != nil {
+	if err := scanner.Err(); err != nil {
 		log.Printf("[acp] read loop error: %v", err)
 	}
 	log.Println("[acp] read loop ended")
+
+	// EOF means the ACP transport is gone. Wake callers before Wait so a child
+	// that closes stdout without exiting cannot strand requests indefinitely.
+	a.handleProcessExit(cmd)
+	if err := cmd.Wait(); err != nil {
+		log.Printf("[acp] subprocess exited: %v", err)
+	}
+}
+
+func (a *ACPAgent) handleProcessExit(cmd *exec.Cmd) {
+	a.mu.Lock()
+	if a.cmd != cmd {
+		a.mu.Unlock()
+		return
+	}
+	a.started = false
+	a.stdin = nil
+	a.scanner = nil
+	a.sessions = make(map[string]string)
+	a.threads = make(map[string]string)
+	a.mu.Unlock()
+
+	a.pendingMu.Lock()
+	for _, ch := range a.pending {
+		select {
+		case ch <- &rpcResponse{Error: &rpcError{Code: -32000, Message: "ACP subprocess disconnected"}}:
+		default:
+		}
+	}
+	a.pendingMu.Unlock()
 }
 
 func (a *ACPAgent) handleSessionUpdate(params json.RawMessage) {
@@ -919,24 +980,37 @@ func (a *ACPAgent) handlePermissionRequest(raw string) {
 		return
 	}
 
-	// Find the "allow" option
-	optionID := "allow"
-	for _, opt := range req.Params.Options {
-		if opt.Kind == "allow" {
-			optionID = opt.OptionID
-			break
-		}
+	optionID, ok := selectAllowPermissionOption(req.Params.Options)
+	if !ok {
+		log.Printf("[acp] permission request offered no allow option; cancelling")
+		a.writePermissionResponse(req.ID, map[string]interface{}{"outcome": "cancelled"})
+		return
 	}
 
-	// Send response
+	a.writePermissionResponse(req.ID, map[string]interface{}{
+		"outcome":  "selected",
+		"optionId": optionID,
+	})
+	log.Printf("[acp] auto-allowed permission request with option %s", optionID)
+}
+
+func selectAllowPermissionOption(options []permissionOption) (string, bool) {
+	for _, preferredKind := range []string{"allow_once", "allow_always", "allow"} {
+		for _, opt := range options {
+			if opt.Kind == preferredKind && opt.OptionID != "" {
+				return opt.OptionID, true
+			}
+		}
+	}
+	return "", false
+}
+
+func (a *ACPAgent) writePermissionResponse(id json.RawMessage, outcome map[string]interface{}) {
 	resp := map[string]interface{}{
 		"jsonrpc": "2.0",
-		"id":      req.ID,
+		"id":      id,
 		"result": map[string]interface{}{
-			"outcome": map[string]interface{}{
-				"outcome":  "selected",
-				"optionId": optionID,
-			},
+			"outcome": outcome,
 		},
 	}
 
@@ -947,10 +1021,10 @@ func (a *ACPAgent) handlePermissionRequest(raw string) {
 	}
 
 	a.mu.Lock()
-	fmt.Fprintf(a.stdin, "%s\n", data)
+	if a.stdin != nil {
+		_, _ = fmt.Fprintf(a.stdin, "%s\n", data)
+	}
 	a.mu.Unlock()
-
-	log.Printf("[acp] auto-allowed permission request")
 }
 
 // Info returns metadata about this agent.

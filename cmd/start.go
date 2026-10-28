@@ -132,6 +132,25 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Load custom aliases from agent configs
 	handler.SetCustomAliases(config.BuildAliasMap(cfg.Agents))
 
+	// Enable the custom transient Inbox. Media is downloaded immediately,
+	// attached to the next text turn, and deleted after successful processing.
+	inboxTTL := messaging.DefaultInboxTTL
+	if cfg.InboxTTLMinutes > 0 {
+		inboxTTL = time.Duration(cfg.InboxTTLMinutes) * time.Minute
+	}
+	inbox, err := messaging.NewInbox(messaging.InboxOptions{
+		Root:          cfg.InboxDir,
+		MaxFiles:      cfg.InboxMaxFiles,
+		MaxFileBytes:  cfg.InboxMaxFileBytes,
+		MaxBatchBytes: cfg.InboxMaxBatchBytes,
+		TTL:           inboxTTL,
+	})
+	if err != nil {
+		return fmt.Errorf("initialize inbound attachment inbox: %w", err)
+	}
+	handler.SetInbox(inbox)
+	log.Printf("Inbound attachment inbox: %s", inbox.Root())
+
 	// Set save directory for images/files if configured
 	if cfg.SaveDir != "" {
 		handler.SetSaveDir(cfg.SaveDir)
@@ -240,7 +259,7 @@ func createAgentByName(ctx context.Context, cfg *config.Config, name string) age
 			Cwd:          agCfg.Cwd,
 			Env:          agCfg.Env,
 			Model:        agCfg.Model,
-			SystemPrompt: agCfg.SystemPrompt,
+			SystemPrompt: config.EffectiveSystemPrompt(agCfg.SystemPrompt),
 		})
 		if err := ag.Start(ctx); err != nil {
 			log.Printf("[agent] failed to start ACP agent %q: %v", name, err)
@@ -256,7 +275,7 @@ func createAgentByName(ctx context.Context, cfg *config.Config, name string) age
 			Cwd:          agCfg.Cwd,
 			Env:          agCfg.Env,
 			Model:        agCfg.Model,
-			SystemPrompt: agCfg.SystemPrompt,
+			SystemPrompt: config.EffectiveSystemPrompt(agCfg.SystemPrompt),
 		})
 		log.Printf("[agent] created CLI agent: %s (command=%s, type=%s, model=%s)", name, agCfg.Command, agCfg.Type, agCfg.Model)
 		return ag
@@ -270,7 +289,7 @@ func createAgentByName(ctx context.Context, cfg *config.Config, name string) age
 			APIKey:       agCfg.APIKey,
 			Headers:      agCfg.Headers,
 			Model:        agCfg.Model,
-			SystemPrompt: agCfg.SystemPrompt,
+			SystemPrompt: config.EffectiveSystemPrompt(agCfg.SystemPrompt),
 			MaxHistory:   agCfg.MaxHistory,
 		})
 		log.Printf("[agent] created HTTP agent: %s (endpoint=%s, model=%s)", name, agCfg.Endpoint, agCfg.Model)

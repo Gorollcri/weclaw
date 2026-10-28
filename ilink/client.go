@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	defaultBaseURL     = "https://ilinkai.weixin.qq.com"
-	longPollTimeout    = 35 * time.Second
-	sendTimeout        = 15 * time.Second
+	defaultBaseURL  = "https://ilinkai.weixin.qq.com"
+	longPollTimeout = 35 * time.Second
+	sendTimeout     = 15 * time.Second
 )
 
 // Client is an iLink HTTP API client.

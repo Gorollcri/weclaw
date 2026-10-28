@@ -26,24 +26,24 @@ const (
 
 // QRCodeResponse is the response from get_bot_qrcode.
 type QRCodeResponse struct {
-	QRCode        string `json:"qrcode"`
+	QRCode           string `json:"qrcode"`
 	QRCodeImgContent string `json:"qrcode_img_content"`
 }
 
 // QRStatusResponse is the response from get_qrcode_status.
 type QRStatusResponse struct {
-	Status     string `json:"status"`
-	BotToken   string `json:"bot_token"`
-	ILinkBotID string `json:"ilink_bot_id"`
-	BaseURL    string `json:"baseurl"`
+	Status      string `json:"status"`
+	BotToken    string `json:"bot_token"`
+	ILinkBotID  string `json:"ilink_bot_id"`
+	BaseURL     string `json:"baseurl"`
 	ILinkUserID string `json:"ilink_user_id"`
 }
 
 // Credentials stores login session data.
 type Credentials struct {
-	BotToken   string `json:"bot_token"`
-	ILinkBotID string `json:"ilink_bot_id"`
-	BaseURL    string `json:"baseurl"`
+	BotToken    string `json:"bot_token"`
+	ILinkBotID  string `json:"ilink_bot_id"`
+	BaseURL     string `json:"baseurl"`
 	ILinkUserID string `json:"ilink_user_id"`
 }
 
@@ -60,11 +60,11 @@ type GetUpdatesRequest struct {
 
 // GetUpdatesResponse is the response from getupdates.
 type GetUpdatesResponse struct {
-	Ret                 int              `json:"ret"`
-	ErrCode             int              `json:"errcode,omitempty"`
-	ErrMsg              string           `json:"errmsg,omitempty"`
-	Msgs                []WeixinMessage  `json:"msgs"`
-	GetUpdatesBuf       string           `json:"get_updates_buf"`
+	Ret                  int             `json:"ret"`
+	ErrCode              int             `json:"errcode,omitempty"`
+	ErrMsg               string          `json:"errmsg,omitempty"`
+	Msgs                 []WeixinMessage `json:"msgs"`
+	GetUpdatesBuf        string          `json:"get_updates_buf"`
 	LongPollingTimeoutMs int             `json:"longpolling_timeout_ms,omitempty"`
 }
 
@@ -126,7 +126,7 @@ type TextItem struct {
 // MediaInfo holds CDN media reference for uploaded files.
 type MediaInfo struct {
 	EncryptQueryParam string `json:"encrypt_query_param"`
-	AESKey            string `json:"aes_key"`    // base64-encoded
+	AESKey            string `json:"aes_key"`      // base64-encoded
 	EncryptType       int    `json:"encrypt_type"` // 1 = AES-128-ECB
 }
 
@@ -134,11 +134,11 @@ type MediaInfo struct {
 type VoiceItem struct {
 	Media         *MediaInfo `json:"media,omitempty"`
 	VoiceSize     int        `json:"voice_size,omitempty"`
-	EncodeType    int        `json:"encode_type,omitempty"`    // 1=pcm 2=adpcm 3=feature 4=speex 5=amr 6=silk 7=mp3
-	BitsPerSample int       `json:"bits_per_sample,omitempty"`
-	SampleRate    int        `json:"sample_rate,omitempty"`    // Hz
-	Playtime      int        `json:"playtime,omitempty"`       // duration in milliseconds
-	Text          string     `json:"text,omitempty"`           // speech-to-text transcription from WeChat
+	EncodeType    int        `json:"encode_type,omitempty"` // 1=pcm 2=adpcm 3=feature 4=speex 5=amr 6=silk 7=mp3
+	BitsPerSample int        `json:"bits_per_sample,omitempty"`
+	SampleRate    int        `json:"sample_rate,omitempty"` // Hz
+	Playtime      int        `json:"playtime,omitempty"`    // duration in milliseconds
+	Text          string     `json:"text,omitempty"`        // speech-to-text transcription from WeChat
 }
 
 // ImageItem holds image content.
@@ -199,9 +199,9 @@ type GetConfigRequest struct {
 
 // GetConfigResponse is the response from getconfig.
 type GetConfigResponse struct {
-	Ret           int    `json:"ret"`
-	ErrMsg        string `json:"errmsg,omitempty"`
-	TypingTicket  string `json:"typing_ticket,omitempty"`
+	Ret          int    `json:"ret"`
+	ErrMsg       string `json:"errmsg,omitempty"`
+	TypingTicket string `json:"typing_ticket,omitempty"`
 }
 
 // SendTypingRequest is the body for sendtyping.

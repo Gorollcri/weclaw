@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"testing"
 )
 
@@ -29,6 +30,9 @@ func TestLookPath_NotExist(t *testing.T) {
 // PATH is stripped to system-only dirs (no nvm), so exec.LookPath fails,
 // but lookPath resolves claude via login shell fallback.
 func TestLookPath_LoginShellFallback(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("login-shell fallback test is Unix-specific")
+	}
 	// Precondition: claude must be discoverable via login shell (i.e. nvm in .zshrc)
 	fullPath, err := exec.LookPath("claude")
 	if err != nil {
@@ -60,6 +64,9 @@ func TestLookPath_LoginShellFallback(t *testing.T) {
 // TestDetectAndConfigure_StrippedPath is an end-to-end test:
 // empty config + stripped PATH → DetectAndConfigure should still find claude.
 func TestDetectAndConfigure_StrippedPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("login-shell fallback test is Unix-specific")
+	}
 	if _, err := exec.LookPath("claude"); err != nil {
 		t.Skip("claude not installed, skipping")
 	}

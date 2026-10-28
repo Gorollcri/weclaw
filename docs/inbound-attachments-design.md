@@ -1,6 +1,6 @@
 # Inbound attachment batching
 
-Status: proposed for the `custom/inbox-attachments` branch.
+Status: V1 implemented on the `custom/inbox-attachments` branch.
 
 ## Goal
 
